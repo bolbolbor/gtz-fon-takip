@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GTZ Fon Takip - GitHub Actions (Debug Versiyonu)
-Response içeriğini gösterir
+TEFAS API Test - BindFonKarsilastirma
+GitHub Actions'tan bu API'ye erişilip erişilemediğini test eder
 """
 
 import requests
@@ -15,7 +15,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '')
 CHAT_ID = os.environ.get('CHAT_ID', '')
-FON_KODU = "GTZ"
 
 
 def telegram_mesaj_gonder(mesaj):
@@ -30,133 +29,155 @@ def telegram_mesaj_gonder(mesaj):
         return False
 
 
-def tefas_fon_al():
-    """TEFAS'tan fon verisini çeker"""
-    print("📡 TEFAS'a bağlanılıyor...")
+def test_api(api_url, api_name, method="GET", data=None):
+    """API'yi test eder"""
+    print(f"\n{'='*70}")
+    print(f"🔍 TEST: {api_name}")
+    print(f"{'='*70}")
+    print(f"🔗 URL: {api_url}")
+    print(f"📋 Method: {method}")
     
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+        "Accept-Language": "tr-TR,tr;q=0.9"
     })
     
     # Önce ana sayfaya git
-    referer_url = "https://www.tefas.gov.tr/TarihselVeriler.aspx"
     try:
-        session.get(referer_url, verify=False, timeout=10)
+        session.get("https://www.tefas.gov.tr/", verify=False, timeout=10)
         print("✅ Cookie alındı")
     except Exception as e:
         print(f"⚠️ Cookie hatası: {e}")
     
     session.headers.update({
-        "Referer": referer_url,
-        "Origin": "https://www.tefas.gov.tr"
+        "Referer": "https://www.tefas.gov.tr/FonKarsilastirma.aspx"
     })
     
-    api_url = "https://www.tefas.gov.tr/api/DB/BindHistoryInfo"
-    bugun = datetime.now().strftime('%Y-%m-%d')
-    
-    data = {
-        "fontip": "ALL",
-        "bastarih": bugun,
-        "bittarih": bugun,
-        "fonkod": FON_KODU
-    }
-    
     try:
-        print(f"📊 İstek gönderiliyor...")
-        print(f"📅 Tarih: {bugun}")
-        print(f"🔗 URL: {api_url}")
-        
-        response = session.post(api_url, data=data, timeout=25, verify=False)
+        if method == "POST":
+            response = session.post(api_url, data=data, timeout=25, verify=False)
+        else:
+            response = session.get(api_url, timeout=25, verify=False)
         
         print(f"📨 HTTP Status: {response.status_code}")
         print(f"📋 Content-Type: {response.headers.get('Content-Type', 'N/A')}")
         print(f"📏 Response Length: {len(response.text)} bytes")
         
-        # Response içeriğini göster
-        print(f"\n📄 Response İlk 1000 Karakter:")
-        print("="*70)
-        print(response.text[:1000])
-        print("="*70)
+        # İlk 500 karakter
+        print(f"\n📄 Response İlk 500 Karakter:")
+        print("-"*70)
+        print(response.text[:500])
+        print("-"*70)
         
         # HTML kontrolü
-        if "<html" in response.text.lower() or "<!doctype" in response.text.lower():
-            print("\n⚠️ HTML response alındı - WAF veya hata sayfası olabilir")
-            
-            # Telegram'a gönder
-            telegram_mesaj_gonder(
-                "⚠️ <b>HTML Response Alındı</b>\n\n"
-                f"İlk 500 karakter:\n<code>{response.text[:500]}</code>"
-            )
-            return None
+        is_html = "<html" in response.text.lower() or "<!doctype" in response.text.lower()
+        is_blocked = "erişim engellendi" in response.text.lower() or "access denied" in response.text.lower()
         
-        # JSON parse dene
-        result = response.json()
-        
-        if result and len(result) > 0:
-            veri = result[0]
-            print(f"\n✅ JSON parse başarılı!")
-            print(f"💰 Fiyat: {veri.get('FIYAT', 0)}")
-            
-            return {
-                'fiyat': float(veri.get('FIYAT', 0)),
-                'tarih': veri.get('TARIH', ''),
-                'kisi': veri.get('KISISAYISI', 0),
-                'portfoy': float(veri.get('PORTFOYBUYUKLUK', 0))
-            }
+        if is_html:
+            if is_blocked:
+                result = "❌ ERİŞİM ENGELLENDİ (WAF)"
+                emoji = "🚫"
+            else:
+                result = "⚠️ HTML response (hata sayfası olabilir)"
+                emoji = "⚠️"
         else:
-            print("❌ Boş result")
-            return None
-            
-    except json.JSONDecodeError as e:
-        print(f"\n❌ JSON Parse Hatası: {e}")
-        print(f"Response metni Telegram'a gönderiliyor...")
+            try:
+                json_data = response.json()
+                result = f"✅ BAŞARILI - JSON alındı ({len(json_data)} item)"
+                emoji = "✅"
+            except:
+                result = "⚠️ JSON değil ama HTML de değil"
+                emoji = "⚠️"
         
-        # Tam response'u Telegram'a gönder
-        telegram_mesaj_gonder(
-            f"❌ <b>JSON Parse Hatası</b>\n\n"
-            f"Status: {response.status_code}\n"
-            f"Content-Type: {response.headers.get('Content-Type', 'N/A')}\n\n"
-            f"İlk 800 karakter:\n<code>{response.text[:800]}</code>"
-        )
-        return None
+        print(f"\n{emoji} Sonuç: {result}\n")
+        
+        return {
+            "api": api_name,
+            "url": api_url,
+            "status": response.status_code,
+            "is_html": is_html,
+            "is_blocked": is_blocked,
+            "result": result,
+            "emoji": emoji,
+            "response_preview": response.text[:300]
+        }
+        
     except Exception as e:
         print(f"❌ Hata: {e}")
-        return None
+        return {
+            "api": api_name,
+            "url": api_url,
+            "error": str(e),
+            "result": f"❌ İstek hatası: {e}",
+            "emoji": "❌"
+        }
 
 
 def main():
     print("="*70)
-    print(f"🔍 GTZ DEBUG - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🧪 TEFAS API TEST SÜİTİ - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*70)
     
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("❌ Secrets eksik!")
-        return
+    results = []
     
-    # Test mesajı
-    telegram_mesaj_gonder(
-        f"🔍 <b>GTZ Debug Başladı</b>\n"
-        f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+    # Test 1: BindFonKarsilastirma
+    result1 = test_api(
+        "https://www.tefas.gov.tr/api/DB/BindFonKarsilastirma",
+        "BindFonKarsilastirma",
+        method="POST",
+        data={"fontip": "YAT"}
     )
+    results.append(result1)
     
-    # Fon verisi
-    veri = tefas_fon_al()
+    # Test 2: BindHistoryInfo (bildiğimiz engellenen)
+    result2 = test_api(
+        "https://www.tefas.gov.tr/api/DB/BindHistoryInfo",
+        "BindHistoryInfo",
+        method="POST",
+        data={
+            "fontip": "ALL",
+            "bastarih": "2026-01-07",
+            "bittarih": "2026-01-07",
+            "fonkod": "GTZ"
+        }
+    )
+    results.append(result2)
     
-    if veri:
-        print(f"\n✅ BAŞARILI!")
-        mesaj = (
-            f"✅ <b>GTZ Başarılı!</b>\n\n"
-            f"💰 Fiyat: <b>{veri['fiyat']:.6f} TL</b>\n"
-            f"📅 Tarih: {veri['tarih']}\n"
-            f"👥 Yatırımcı: {veri['kisi']:,}\n"
-            f"💼 Portföy: {veri['portfoy']:,.2f} TL"
-        )
-        telegram_mesaj_gonder(mesaj)
-    else:
-        print("\n❌ Veri alınamadı!")
+    # Test 3: BindHistoryAllInfo (başka endpoint)
+    result3 = test_api(
+        "https://www.tefas.gov.tr/api/DB/BindHistoryAllInfo",
+        "BindHistoryAllInfo",
+        method="POST",
+        data={"fonkod": "GTZ"}
+    )
+    results.append(result3)
+    
+    # Özet
+    print("\n" + "="*70)
+    print("📊 TEST SONUÇLARI ÖZETİ")
+    print("="*70)
+    
+    mesaj_parts = ["🧪 <b>TEFAS API Test Sonuçları</b>\n"]
+    
+    for result in results:
+        print(f"{result['emoji']} {result['api']}: {result.get('status', 'N/A')}")
+        mesaj_parts.append(f"{result['emoji']} <b>{result['api']}</b>")
+        mesaj_parts.append(f"   Status: {result.get('status', 'Hata')}")
+        
+        if result.get('is_blocked'):
+            mesaj_parts.append(f"   ❌ ERİŞİM ENGELLİ")
+        elif result.get('is_html'):
+            mesaj_parts.append(f"   ⚠️ HTML response")
+        elif 'error' not in result:
+            mesaj_parts.append(f"   ✅ Erişilebilir")
+        
+        mesaj_parts.append("")
+    
+    # Telegram'a gönder
+    if TELEGRAM_TOKEN and CHAT_ID:
+        telegram_mesaj_gonder("\n".join(mesaj_parts))
     
     print("="*70)
 
