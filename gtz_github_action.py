@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GTZ Fon Takip - GitHub Actions (TEFAS Scraper Yöntemi)
-Develooper1994'ün başarılı TEFAS erişim yöntemini kullanır
+GTZ Fon Takip - GitHub Actions (Debug Versiyonu)
+Response içeriğini gösterir
 """
 
 import requests
@@ -11,7 +11,6 @@ import json
 from datetime import datetime
 import urllib3
 
-# SSL uyarılarını kapat
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '')
@@ -32,35 +31,30 @@ def telegram_mesaj_gonder(mesaj):
 
 
 def tefas_fon_al():
-    """
-    TEFAS'tan fon verisini çeker - develooper1994'ün yöntemi
-    KEY POINT: Session + Referer + verify=False
-    """
+    """TEFAS'tan fon verisini çeker"""
     print("📡 TEFAS'a bağlanılıyor...")
     
-    # Session oluştur (cookie yönetimi için)
     session = requests.Session()
-    
-    # User-Agent ekle
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
     })
     
-    # Önce ana sayfaya git (cookie almak için)
+    # Önce ana sayfaya git
     referer_url = "https://www.tefas.gov.tr/TarihselVeriler.aspx"
     try:
         session.get(referer_url, verify=False, timeout=10)
         print("✅ Cookie alındı")
     except Exception as e:
-        print(f"⚠️ Cookie alma hatası: {e}")
+        print(f"⚠️ Cookie hatası: {e}")
     
-    # Referer ekle
-    session.headers.update({"Referer": referer_url})
+    session.headers.update({
+        "Referer": referer_url,
+        "Origin": "https://www.tefas.gov.tr"
+    })
     
-    # API isteği
     api_url = "https://www.tefas.gov.tr/api/DB/BindHistoryInfo"
-    
-    # Bugünün tarihi
     bugun = datetime.now().strftime('%Y-%m-%d')
     
     data = {
@@ -71,21 +65,40 @@ def tefas_fon_al():
     }
     
     try:
-        print(f"📊 Veri isteniyor: {api_url}")
+        print(f"📊 İstek gönderiliyor...")
         print(f"📅 Tarih: {bugun}")
+        print(f"🔗 URL: {api_url}")
         
         response = session.post(api_url, data=data, timeout=25, verify=False)
         
         print(f"📨 HTTP Status: {response.status_code}")
+        print(f"📋 Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+        print(f"📏 Response Length: {len(response.text)} bytes")
         
-        response.raise_for_status()
+        # Response içeriğini göster
+        print(f"\n📄 Response İlk 1000 Karakter:")
+        print("="*70)
+        print(response.text[:1000])
+        print("="*70)
         
-        # JSON parse
+        # HTML kontrolü
+        if "<html" in response.text.lower() or "<!doctype" in response.text.lower():
+            print("\n⚠️ HTML response alındı - WAF veya hata sayfası olabilir")
+            
+            # Telegram'a gönder
+            telegram_mesaj_gonder(
+                "⚠️ <b>HTML Response Alındı</b>\n\n"
+                f"İlk 500 karakter:\n<code>{response.text[:500]}</code>"
+            )
+            return None
+        
+        # JSON parse dene
         result = response.json()
         
         if result and len(result) > 0:
             veri = result[0]
-            print(f"✅ Veri alındı!")
+            print(f"\n✅ JSON parse başarılı!")
+            print(f"💰 Fiyat: {veri.get('FIYAT', 0)}")
             
             return {
                 'fiyat': float(veri.get('FIYAT', 0)),
@@ -94,74 +107,56 @@ def tefas_fon_al():
                 'portfoy': float(veri.get('PORTFOYBUYUKLUK', 0))
             }
         else:
-            print("❌ Boş veri döndü")
+            print("❌ Boş result")
             return None
             
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Request hatası: {e}")
-        return None
     except json.JSONDecodeError as e:
-        print(f"❌ JSON parse hatası: {e}")
-        print(f"Response text: {response.text[:500]}")
+        print(f"\n❌ JSON Parse Hatası: {e}")
+        print(f"Response metni Telegram'a gönderiliyor...")
+        
+        # Tam response'u Telegram'a gönder
+        telegram_mesaj_gonder(
+            f"❌ <b>JSON Parse Hatası</b>\n\n"
+            f"Status: {response.status_code}\n"
+            f"Content-Type: {response.headers.get('Content-Type', 'N/A')}\n\n"
+            f"İlk 800 karakter:\n<code>{response.text[:800]}</code>"
+        )
         return None
     except Exception as e:
-        print(f"❌ Beklenmeyen hata: {e}")
+        print(f"❌ Hata: {e}")
         return None
 
 
 def main():
     print("="*70)
-    print(f"🔍 GTZ FON KONTROLÜ - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔍 GTZ DEBUG - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*70)
     
-    # Telegram kontrol
-    print(f"\n🔑 Telegram Token: {'✅ Var' if TELEGRAM_TOKEN else '❌ YOK'}")
-    print(f"🔑 Chat ID: {'✅ Var' if CHAT_ID else '❌ YOK'}")
-    
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("\n❌ GitHub Secrets eksik!")
+        print("❌ Secrets eksik!")
         return
     
     # Test mesajı
-    print("\n📱 Test mesajı gönderiliyor...")
-    test_ok = telegram_mesaj_gonder(
-        f"🔍 <b>GTZ Kontrol Başladı</b>\n\n"
-        f"⏰ {datetime.now().strftime('%H:%M:%S')}\n"
-        f"🤖 GitHub Actions (TEFAS Scraper Yöntemi)"
+    telegram_mesaj_gonder(
+        f"🔍 <b>GTZ Debug Başladı</b>\n"
+        f"⏰ {datetime.now().strftime('%H:%M:%S')}"
     )
     
-    if test_ok:
-        print("✅ Test mesajı gönderildi!")
-    else:
-        print("❌ Test mesajı gönderilemedi!")
-    
-    # Fon verisini al
+    # Fon verisi
     veri = tefas_fon_al()
     
     if veri:
-        print(f"\n💰 BAŞARILI!")
-        print(f"   Fiyat: {veri['fiyat']:.6f} TL")
-        print(f"   Tarih: {veri['tarih']}")
-        print(f"   Yatırımcı: {veri['kisi']:,}")
-        print(f"   Portföy: {veri['portfoy']:,.2f} TL")
-        
+        print(f"\n✅ BAŞARILI!")
         mesaj = (
-            f"✅ <b>GTZ Veri Alındı!</b>\n\n"
+            f"✅ <b>GTZ Başarılı!</b>\n\n"
             f"💰 Fiyat: <b>{veri['fiyat']:.6f} TL</b>\n"
             f"📅 Tarih: {veri['tarih']}\n"
             f"👥 Yatırımcı: {veri['kisi']:,}\n"
-            f"💼 Portföy: {veri['portfoy']:,.2f} TL\n\n"
-            f"⏰ {datetime.now().strftime('%H:%M:%S')}\n"
-            f"🤖 GitHub Actions"
+            f"💼 Portföy: {veri['portfoy']:,.2f} TL"
         )
         telegram_mesaj_gonder(mesaj)
     else:
         print("\n❌ Veri alınamadı!")
-        telegram_mesaj_gonder(
-            "❌ <b>GTZ - Veri Alınamadı</b>\n\n"
-            "TEFAS bağlantı hatası.\n"
-            f"⏰ {datetime.now().strftime('%H:%M:%S')}"
-        )
     
     print("="*70)
 
