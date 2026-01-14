@@ -2,11 +2,11 @@ name: GTZ Fon Takip
 
 on:
   schedule:
-    # Sabah yoğun kontrol (10:00-12:00 arası her 3 dakika)
-    - cron: '*/3 10-12 * * 1-5'
+    # Sabah yoğun kontrol (10:00-12:00 Türkiye saati = 07:00-09:00 UTC)
+    - cron: '*/3 7-9 * * 1-5'
     
-    # Öğleden sonra hafif kontrol (13:00-17:00 arası her 30 dakika)
-    - cron: '*/30 13-17 * * 1-5'
+    # Öğleden sonra hafif kontrol (13:00-17:00 Türkiye saati = 10:00-14:00 UTC)
+    - cron: '*/30 10-14 * * 1-5'
     
   workflow_dispatch: # Manuel çalıştırma için
 
